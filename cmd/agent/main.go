@@ -27,6 +27,15 @@ func main() {
 		port = "9001"
 	}
 	r := mux.NewRouter().SkipClean(true)
+	// API Router
+	apiRouter := r.NewRoute().PathPrefix("/").Subrouter()
+
+	// Instance router
+	instance := apiRouter.PathPrefix("/instance/{instance-id}").Subrouter()
+
+	// Instanceprovision
+	instance.Methods("PUT").HandlerFunc(agent.CreateInstanceHandler)
+	// PutObjectPart
 	r.HandleFunc("/instance/{key}", agent.CreateInstanceHandler)
 	r.HandleFunc("/instance/status", agent.InstanceStatusHandler)
 	//r.HandleFunc("/binding/create", CreateBindingHandler)
