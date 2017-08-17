@@ -2,9 +2,6 @@ package main
 
 import (
 	"net/http"
-)
-
-import (
 	"os"
 
 	"code.cloudfoundry.org/lager"
@@ -19,18 +16,21 @@ func main() {
 	// Create logger
 	log.RegisterSink(lager.NewWriterSink(os.Stderr, lager.DEBUG))
 	log.RegisterSink(lager.NewWriterSink(os.Stderr, lager.INFO))
-
+	// Setup the agent
+	agent := &MinioServiceAgent{
+		log:      log,
+		rootURL:  "http://127.0.0.1",
+		services: make(map[string]*ServiceState, 10),
+	}
 	port := os.Getenv("SERVICE_PORT")
 	if port == "" {
 		port = "9001"
 	}
-	r := mux.NewRouter()
-	r.HandleFunc("/instance/create", CreateInstanceHandler)
-	r.HandleFunc("/instance/delete", DeleteInstanceHandler)
-	r.HandleFunc("/instance/status", InstanceStatusHandler)
+	r := mux.NewRouter().SkipClean(true)
+	r.HandleFunc("/instance/{key}", agent.CreateInstanceHandler)
+	r.HandleFunc("/instance/status", agent.InstanceStatusHandler)
 	//r.HandleFunc("/binding/create", CreateBindingHandler)
 	//r.HandleFunc("/binding/delete", DeleteBindingHandler)
 	//r.HandleFunc("/binding/status", BindingStatusHandler)
-
 	http.ListenAndServe(":9001", r)
 }

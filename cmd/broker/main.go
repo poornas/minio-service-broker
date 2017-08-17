@@ -31,10 +31,10 @@ const (
 // this is just a stub - #TODO load any config from file
 func getConfig() (conf utils.Config) {
 	conf = utils.Config{
-		Endpoint:  "play.minio.io:9000",
-		AccessKey: "minio",
-		SecretKey: "minio123",
-		Secure:    true,
+		Endpoint:  "127.0.0.1:9001",
+		AccessKey: "minioservice",
+		SecretKey: "minioservice123",
+		Secure:    false,
 	}
 	return
 }
