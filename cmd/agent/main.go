@@ -35,6 +35,8 @@ func main() {
 
 	// Instanceprovision
 	instance.Methods("PUT").HandlerFunc(agent.CreateInstanceHandler)
+	instance.Methods("DELETE").HandlerFunc(agent.DeleteInstanceHandler)
+
 	// PutObjectPart
 	r.HandleFunc("/instance/{key}", agent.CreateInstanceHandler)
 	r.HandleFunc("/instance/status", agent.InstanceStatusHandler)
