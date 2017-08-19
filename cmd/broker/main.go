@@ -73,6 +73,7 @@ func main() {
 		planDescription: DefaultPlanDescription,
 		bindablePlan:    true,
 		instanceMgr:     NewInstanceMgr(conf, log),
+		bindingMgr:      NewBindingMgr(conf, log),
 	}
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -19,7 +19,8 @@ type InstanceMgr struct {
 
 // InstanceInfo holds instance state
 type InstanceInfo struct {
-	instanceID string
+	instanceID   string
+	dashboardURL string
 	// other state info
 }
 
@@ -53,14 +54,14 @@ func (mgr *InstanceMgr) Create(instanceID string) error {
 	settings := map[string]string{
 		"instanceID": instanceID,
 	}
-	instance, err := mgr.client.CreateInstance(settings)
+	instanceURL, err := mgr.client.CreateInstance(settings)
 	if err != nil {
 		fmt.Println("SERVICE DID NOT START", err)
 		return err
 	}
 	fmt.Println("Service should have started")
 
-	mgr.instances[instanceID] = &InstanceInfo{instanceID: instance} //hold reference to provisioned instance state
+	mgr.instances[instanceID] = &InstanceInfo{instanceID: instanceID, dashboardURL: instanceURL} //hold reference to provisioned instance state
 
 	return nil
 }

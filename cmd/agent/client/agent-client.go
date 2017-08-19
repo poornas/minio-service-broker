@@ -2,10 +2,12 @@ package client
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,6 +31,7 @@ type requestMetadata struct {
 
 	// User supplied.
 	instanceID   string
+	bindingID    string
 	queryValues  url.Values
 	customHeader http.Header
 	expires      int64
@@ -75,19 +78,47 @@ func (c *ApiClient) CreateInstance(parameters map[string]string) (string, error)
 		c.log.Error("service agent returned error while provisioning", err)
 		return "", err
 	}
-
-	return "", nil
+	responseData, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(responseData), nil
 }
-func (c *ApiClient) GetInstanceState(instanceID string) (string, error) {
-	//TODO
-	return "", nil
+func (c *ApiClient) GetInstanceState(instanceID string) (utils.Credentials, error) {
+	// Get server binding create metadata.
+	reqMetadata := requestMetadata{
+		instanceID: instanceID,
+	}
+	fmt.Println("inside GetInstanceState<== client call to agent ")
+	// Execute PUT to create a new bucket.
+	resp, err := c.executeMethod("GET", reqMetadata)
+	defer closeResponse(resp)
+	if err != nil {
+		c.log.Error("service agent could not retrieve instance credentials", err)
+		return utils.Credentials{}, err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		c.log.Fatal("Could not read response body", err)
+	}
+
+	creds, err := getCredentialsJSONResponse([]byte(body))
+	return *creds, err
+}
+
+func getCredentialsJSONResponse(body []byte) (*utils.Credentials, error) {
+	var c = new(utils.Credentials)
+	err := json.Unmarshal(body, &c)
+	if err != nil {
+		fmt.Println("credentials unmarshalling Error:", err)
+	}
+	return c, err
 }
 func (c *ApiClient) DeleteInstance(instanceID string) error {
 	// DELETE server instance create metadata.
 	reqMetadata := requestMetadata{
 		instanceID: instanceID,
 	}
-	fmt.Println("inside DELETE instance<== client call to agent ")
 	// Execute PUT to create a new bucket.
 	resp, err := c.executeMethod("DELETE", reqMetadata)
 	defer closeResponse(resp)
@@ -95,14 +126,6 @@ func (c *ApiClient) DeleteInstance(instanceID string) error {
 		c.log.Error("service agent returned error while deprovisioning", err)
 		return err
 	}
-
-	return nil
-}
-func (c *ApiClient) CreateBinding(parameters map[string]string) (string, error) {
-
-	return parameters["bindingID"], nil
-}
-func (c *ApiClient) DeleteBinding(instanceId string, bindingID string) error {
 
 	return nil
 }
@@ -219,7 +242,7 @@ func (c ApiClient) newRequest(method string, reqData requestMetadata) (req *http
 	}
 
 	// Construct a new target URL.
-	targetURL, err := c.makeTargetURL(reqData.instanceID, reqData.queryValues)
+	targetURL, err := c.makeTargetURL(reqData.instanceID, reqData.bindingID, reqData.queryValues)
 	fmt.Println("targetURL===", targetURL)
 	if err != nil {
 		return nil, err
@@ -246,7 +269,7 @@ func (c ApiClient) newRequest(method string, reqData requestMetadata) (req *http
 }
 
 // makeTargetURL make a new target url.
-func (c ApiClient) makeTargetURL(instanceID string, queryValues url.Values) (*url.URL, error) {
+func (c ApiClient) makeTargetURL(instanceID string, bindingID string, queryValues url.Values) (*url.URL, error) {
 
 	host := c.endpointURL.Host
 	scheme := c.endpointURL.Scheme
@@ -254,7 +277,10 @@ func (c ApiClient) makeTargetURL(instanceID string, queryValues url.Values) (*ur
 	urlStr := scheme + "://" + host + "/"
 
 	if instanceID != "" {
-		urlStr = urlStr + s3utils.EncodePath("instance/"+instanceID)
+		urlStr = urlStr + s3utils.EncodePath("instances/"+instanceID)
+	}
+	if bindingID != "" {
+		urlStr = urlStr + s3utils.EncodePath("bindings/"+bindingID)
 	}
 	// If there are any query values, add them to the end.
 	if len(queryValues) > 0 {

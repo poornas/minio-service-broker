@@ -31,17 +31,11 @@ func main() {
 	apiRouter := r.NewRoute().PathPrefix("/").Subrouter()
 
 	// Instance router
-	instance := apiRouter.PathPrefix("/instance/{instance-id}").Subrouter()
+	instance := apiRouter.PathPrefix("/instances/{instance-id}").Subrouter()
 
 	// Instanceprovision
 	instance.Methods("PUT").HandlerFunc(agent.CreateInstanceHandler)
 	instance.Methods("DELETE").HandlerFunc(agent.DeleteInstanceHandler)
-
-	// PutObjectPart
-	r.HandleFunc("/instance/{key}", agent.CreateInstanceHandler)
-	r.HandleFunc("/instance/status", agent.InstanceStatusHandler)
-	//r.HandleFunc("/binding/create", CreateBindingHandler)
-	//r.HandleFunc("/binding/delete", DeleteBindingHandler)
-	//r.HandleFunc("/binding/status", BindingStatusHandler)
+	instance.Methods("GET").HandlerFunc(agent.GetInstanceHandler)
 	http.ListenAndServe(":9001", r)
 }

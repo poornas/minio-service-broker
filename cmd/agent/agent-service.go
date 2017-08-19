@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -9,10 +10,9 @@ import (
 	"os/exec"
 	"strconv"
 
+	"code.cloudfoundry.org/lager"
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-service-broker/utils"
-
-	"code.cloudfoundry.org/lager"
 )
 
 const (
@@ -23,6 +23,7 @@ const (
 	// Data directory where buckets are created
 	DataDir = "/tmp/data/{app name}/data"
 	// Hard code ip address of server running service agent for now
+
 )
 
 type ServiceState struct {
@@ -69,7 +70,6 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 	instanceID := vars["instance-id"]
 	log.Info("create instance!!!!!!::" + r.RequestURI + "::" + instanceID)
 	// Spawn minio instance
-	fmt.Println("about to spawn minio server....")
 	_, err := exec.LookPath("minio")
 	if err != nil {
 		agent.log.Info("minio binary not found in install paths")
@@ -78,17 +78,12 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 
 	// minio directory path
 	dirPath := RootDir + instanceID + "/" + "data"
-	configDirPath := RootDir + instanceID + "/" + "config"
+	configDirPath := getConfigDir(instanceID)
+	fmt.Println(configDirPath, "diroath")
 	cmd := exec.Command("minio", "server", "--address", ":"+strconv.Itoa(port), "--config-dir", configDirPath, dirPath)
 
-	f, err := os.Open("/tmp/log")
-	if err != nil {
-		agent.log.Fatal("Failed to provision an instance", err)
-	}
-	cmd.Stdout = f
-	cmd.Stderr = f
-	// Execute command
-
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	err = cmd.Start() // will wait for command to return
 
 	// Only output the commands stdout
@@ -96,15 +91,18 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 	if err != nil {
 		agent.log.Fatal("Failed to provision instance", err)
 	}
-	fmt.Println("service should be provisioned")
-	fmt.Println(cmd.Process, cmd.ProcessState, cmd.Dir, cmd.Env)
-	fmt.Println("processid? ", cmd.Process.Pid)
+	fmt.Println("Service provisioned successfully")
 	serviceState := &ServiceState{
-		port:   cmd.Process.Pid,
+		port:   port,
 		status: "ON",
 		pid:    cmd.Process.Pid,
 	}
 	agent.services[instanceID] = serviceState
+	dashboardURL := agent.getDashboardURL(instanceID)
+	w.Header().Set("Content-Type", string("application/txt"))
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, dashboardURL)
+
 }
 
 func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,24 +114,65 @@ func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *
 	}
 	cmd := exec.Command("kill", "-9", strconv.Itoa(agent.services[instanceID].pid))
 
-	f, err := os.Open("/tmp/log")
-	if err != nil {
-		agent.log.Fatal("Failed to deprovision an instance", err)
-	}
-	cmd.Stdout = f
-	cmd.Stderr = f
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	// Execute command
 
-	err = cmd.Start() // will not wait for command to return
-
-	// Only output the commands stdout
-
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		agent.log.Fatal("Failed to deprovision instance", err)
 	}
-	fmt.Println("service should be deprovisioned")
+	fmt.Println("Service should be deprovisioned")
 	delete(agent.services, instanceID)
+	w.WriteHeader(http.StatusOK)
+
 }
 func (agent *MinioServiceAgent) InstanceStatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("InstanceStatusHandler!\n"))
+}
+
+func (agent *MinioServiceAgent) GetInstanceHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info("Entering GetInstanceHandler handler ...")
+	vars := mux.Vars(r)
+	instanceID := vars["instance-id"]
+
+	if _, found := agent.services[instanceID]; !found {
+		agent.log.Error("instance not found", errors.New("instance does not exist"))
+	}
+	// load credentials from config
+	configFilePath := getConfigFilePath(instanceID)
+	creds, err := utils.GetCredentialsFromConfig(configFilePath)
+	if err != nil {
+		agent.log.Fatal("Instance config missing", err)
+	}
+	instanceURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/minio"
+	credentials := &utils.Credentials{
+		EndpointURL: instanceURL,
+		AccessKey:   creds.AccessKey,
+		SecretKey:   creds.SecretKey,
+		Region:      "us-east-1",
+	}
+	// Marshal API response
+	jsonBytes, err := json.Marshal(credentials)
+	if err != nil {
+		http.Error(w, "Credentials could not be marshalled to JSON", http.StatusInternalServerError)
+		agent.log.Fatal("Failed to marshal instance credentials to json", err)
+	}
+
+	w.Header().Set("Content-Type", string("application/json"))
+	w.WriteHeader(http.StatusOK)
+	if credentials != nil {
+		w.Write(jsonBytes)
+		w.(http.Flusher).Flush()
+	}
+}
+
+func getConfigDir(instanceID string) string {
+	return RootDir + instanceID + "/" + "config"
+}
+func getConfigFilePath(instanceID string) string {
+	return getConfigDir(instanceID) + "/config.json"
+}
+func (agent *MinioServiceAgent) getDashboardURL(instanceID string) string {
+	instanceURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/minio"
+	return instanceURL
 }

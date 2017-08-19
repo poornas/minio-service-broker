@@ -6,17 +6,9 @@ import (
 	"fmt"
 
 	"code.cloudfoundry.org/lager"
+	"github.com/minio/minio-service-broker/utils"
 	"github.com/pivotal-cf/brokerapi"
 )
-
-type Credentials struct {
-	EndpointURL string
-	AccessKey   string
-	SecretKey   string
-	// for now -- this is the credentials
-	instanceID string
-	bindingID  string
-}
 
 type BrokerConfig struct {
 	Password string
@@ -28,6 +20,11 @@ type InstanceCreator interface {
 	Create(instanceID string) error
 	Destroy(instanceID string) error
 	Exists(instanceID string) (bool, error)
+}
+type InstanceBinder interface {
+	Bind(instanceID string, bindingID string) (utils.Credentials, error)
+	Unbind(instanceID string, bindingID string) error
+	Exists(instanceID string, bindingID string) (bool, error)
 }
 
 // Broker
@@ -45,7 +42,7 @@ type MinioServiceBroker struct {
 	planID          string
 	bindablePlan    bool
 	instanceMgr     *InstanceMgr
-
+	bindingMgr      *BindingMgr
 	// Broker Config
 	Config BrokerConfig
 }
@@ -103,8 +100,7 @@ func (b *MinioServiceBroker) Provision(ctx context.Context, instanceID string, s
 	if err != nil {
 		return brokerapi.ProvisionedServiceSpec{}, err
 	}
-	b.instanceMgr.instances[instanceID] = &InstanceInfo{instanceID: instanceID}
-	spec.DashboardURL = "http://example-dashboard.example.com/9189kdfsk0vfnku" // Set to bucketpath here....
+	spec.DashboardURL = b.instanceMgr.instances[instanceID].dashboardURL
 	return spec, nil
 }
 
@@ -128,7 +124,20 @@ func (b *MinioServiceBroker) Bind(ctx context.Context, instanceID, bindingID str
 		"binding-id":  bindingID,
 		"instance-id": instanceID,
 	})
-
+	binding := brokerapi.Binding{}
+	exists, _ := b.instanceMgr.Exists(instanceID)
+	if exists {
+		bindingExists, _ := b.bindingMgr.Exists(instanceID, bindingID)
+		if bindingExists {
+			return brokerapi.Binding{}, brokerapi.ErrBindingAlreadyExists
+		}
+		instanceCredentials, err := b.bindingMgr.Bind(instanceID, bindingID)
+		if err != nil {
+			return brokerapi.Binding{}, errors.New("binding could not be created")
+		}
+		binding.Credentials = instanceCredentials
+		return binding, err
+	}
 	return brokerapi.Binding{}, brokerapi.ErrInstanceDoesNotExist
 }
 
@@ -138,8 +147,16 @@ func (b *MinioServiceBroker) Unbind(ctx context.Context, instanceID, bindingID s
 		"binding-id":  bindingID,
 		"instance-id": instanceID,
 	})
+	exists, _ := b.bindingMgr.Exists(instanceID, bindingID)
+	if exists {
+		err := b.bindingMgr.Unbind(instanceID, bindingID)
+		if err != nil {
+			return brokerapi.ErrBindingDoesNotExist
+		}
+		return nil
+	}
 
-	return brokerapi.ErrInstanceDoesNotExist
+	return brokerapi.ErrBindingDoesNotExist
 }
 
 // LastOperation ...
