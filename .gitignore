@@ -18,3 +18,5 @@ release
 coverage.txt
 /cmd/agent
 /cmd/broker
+/tile/src/*
+!/tile/src/.gitkeep 

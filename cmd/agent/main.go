@@ -19,7 +19,7 @@ func main() {
 	// Setup the agent
 	agent := &MinioServiceAgent{
 		log:      log,
-		rootURL:  "http://127.0.0.1",
+		rootURL:  "http://127.0.0.1",  //server URL
 		services: make(map[string]*ServiceState, 10),
 	}
 	port := os.Getenv("SERVICE_PORT")
