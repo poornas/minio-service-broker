@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"code.cloudfoundry.org/lager"
 	"github.com/gorilla/mux"
@@ -18,19 +21,18 @@ import (
 
 const (
 	// Root directory where agent runs
-	RootDir = "/tmp/data/"
+	RootDir = "/var/vcap/store/minio-agent/instances/"
 	// Config directory where app resides
 	ConfigDir = "/tmp/data/{app name}/config"
 	// Data directory where buckets are created
 	DataDir = "/tmp/data/{app name}/data"
 	// Hard code ip address of server running service agent for now
-
+	stateDir = "/var/vcap/store/minio-agent/state"
 )
 
 type ServiceState struct {
 	port   int
-	status string // Server on|off
-	pid    int    // process id of running service
+	status string
 }
 
 // MinioServiceAgent holds the map of service name to status TODO => Persist agent config to some config.json
@@ -76,19 +78,7 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 		agent.log.Info("minio binary not found in install paths")
 	}
 	port := getFreePort()
-
-	// minio directory path
-	dirPath := RootDir + instanceID + "/" + "data"
-	configDirPath := getConfigDir(instanceID)
-	fmt.Println(configDirPath, "diroath")
-	cmd := exec.Command("minio", "server", "--address", ":"+strconv.Itoa(port), "--config-dir", configDirPath, dirPath)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Start() // will wait for command to return
-
-	// Only output the commands stdout
-
+	err = agent.createInstance(instanceID, port)
 	if err != nil {
 		agent.log.Fatal("Failed to provision instance", err)
 	}
@@ -96,9 +86,9 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 	serviceState := &ServiceState{
 		port:   port,
 		status: "ON",
-		pid:    cmd.Process.Pid,
 	}
 	agent.services[instanceID] = serviceState
+	saveState(instanceID, port)
 	dashboardURL := agent.getDashboardURL(instanceID)
 	w.Header().Set("Content-Type", string("application/txt"))
 	w.WriteHeader(http.StatusOK)
@@ -132,6 +122,7 @@ func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *
 	// 	agent.log.Fatal("Failed to deprovision instance", err)
 	// }
 	fmt.Println("Service should be deprovisioned", err)
+	eraseState(instanceID, agent.services[instanceID].port)
 	delete(agent.services, instanceID)
 	w.WriteHeader(http.StatusOK)
 
@@ -190,4 +181,57 @@ func getCredentials(instanceID string) (auth.CredentialsV4, error) {
 func (agent *MinioServiceAgent) getDashboardURL(instanceID string) string {
 	instanceURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/minio"
 	return instanceURL
+}
+
+func saveState(instanceID string, port int) error {
+	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
+		pathErr := os.MkdirAll(stateDir, 0777)
+
+		//check if you need to panic, fallback or report
+		if pathErr != nil {
+			return err
+		}
+	}
+
+	if _, err := os.Create(stateDir + "/" + instanceID + ":" + strconv.Itoa(port)); err != nil {
+		return err
+	}
+	return nil
+}
+func eraseState(instanceID string, port int) error {
+	path := stateDir + "/" + instanceID + ":" + strconv.Itoa(port)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return err
+	}
+	return os.Remove(path)
+}
+func (agent *MinioServiceAgent) createInstance(instanceID string, port int) error {
+	// minio directory path
+	dirPath := RootDir + instanceID + "/" + "data"
+	configDirPath := getConfigDir(instanceID)
+	fmt.Println(configDirPath, "diroath")
+	cmd := exec.Command("minio", "server", "--address", ":"+strconv.Itoa(port), "--config-dir", configDirPath, dirPath)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Start() // will wait for command to return
+	return err
+}
+
+func (agent *MinioServiceAgent) Init() {
+	files, _ := ioutil.ReadDir(stateDir)
+	for _, f := range files {
+		fileName := filepath.Base(f.Name())
+		splits := strings.Split(fileName, ":")
+		instanceID, portStr := splits[0], splits[1]
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			agent.log.Fatal("Init failed to bring up instances ", err)
+			break
+		}
+		if err = agent.createInstance(instanceID, port); err != nil {
+			agent.log.Fatal("Init failed to bring up instances ", err)
+			break
+		}
+	}
 }
