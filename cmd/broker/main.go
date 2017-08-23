@@ -25,7 +25,7 @@ const (
 	DefaultPlanDescription = "Secure access to a single instance Minio server"
 
 	// DefaultServiceID is placeholder id for the service broker
-	DefaultServiceID = "minio-poorna-service-id"
+	DefaultServiceID = "minio-broker-id"
 )
 
 // this is just a stub - #TODO load any config from file
@@ -36,6 +36,7 @@ func getConfig() (conf utils.Config) {
 	} else {
 		hostname = hostname + ":8999"
 	}
+	hostname = "192.168.16.142:9001"
 	// config of service agent : #TODO Replace placeholder AccessKey and SecretKey
 	conf = utils.Config{
 		Endpoint:  hostname,
