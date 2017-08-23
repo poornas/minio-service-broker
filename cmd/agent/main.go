@@ -14,32 +14,33 @@ var log = lager.NewLogger("minio-serviceagent")
 func main() {
 	fmt.Println("agent listening...")
 
-	//creds := auth.CredentialsV4{"miniobroker", "miniobroker123", "us-east-1"}
-
 	// Create logger
 	log.RegisterSink(lager.NewWriterSink(os.Stderr, lager.DEBUG))
 	log.RegisterSink(lager.NewWriterSink(os.Stderr, lager.INFO))
 	// Setup the agent
 	agent := &MinioServiceAgent{
-		log:      log,
-		rootURL:  "http://127.0.0.1", //server URL
-		services: make(map[string]*ServiceState, 10),
+		log: log,
 	}
-	agent.Init()
-	port := os.Getenv("SERVICE_PORT")
-	if port == "" {
-		port = "9001"
+	if err := agent.Init(); err != nil {
+		log.Fatal("Unable to Init()", err)
+		return
 	}
-	r := mux.NewRouter().SkipClean(true)
-	// API Router
-	apiRouter := r.NewRoute().PathPrefix("/").Subrouter()
 
-	// Instance router
-	instance := apiRouter.PathPrefix("/instances/{instance-id}").Subrouter()
+	if err := os.MkdirAll(globalMinioDir, 0755); err != nil {
+		log.Fatal("Unable to create "+globalMinioDir, err)
+		return
+	}
+	if err := os.MkdirAll(globalInstancesDir, 0755); err != nil {
+		log.Fatal("Unable to create "+globalInstancesDir, err)
+		return
+	}
 
-	// Instanceprovision
-	instance.Methods("PUT").HandlerFunc(agent.CreateInstanceHandler)
-	instance.Methods("DELETE").HandlerFunc(agent.DeleteInstanceHandler)
-	instance.Methods("GET").HandlerFunc(agent.GetInstanceHandler)
-	http.ListenAndServe(":9001", r)
+	router := mux.NewRouter()
+	router.Methods("PUT").Path("/instances/{instance-id}").HandlerFunc(agent.CreateInstanceHandler)
+	router.Methods("DELETE").Path("/instances/{instance-id}").HandlerFunc(agent.DeleteInstanceHandler)
+	router.Methods("GET").Path("/instances/{instance-id}").HandlerFunc(agent.GetInstanceHandler)
+
+	if err := http.ListenAndServe(globalAgentPort, router); err != nil {
+		log.Fatal("Unable to listen on port "+globalAgentPort, err)
+	}
 }
