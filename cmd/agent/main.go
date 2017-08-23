@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 var log = lager.NewLogger("minio-serviceagent")
 
 func main() {
+	fmt.Println("agent listening...")
 	//creds := auth.CredentialsV4{"miniobroker", "miniobroker123", "us-east-1"}
 
 	// Create logger
@@ -19,7 +21,7 @@ func main() {
 	// Setup the agent
 	agent := &MinioServiceAgent{
 		log:      log,
-		rootURL:  "http://127.0.0.1",  //server URL
+		rootURL:  "http://127.0.0.1", //server URL
 		services: make(map[string]*ServiceState, 10),
 	}
 	port := os.Getenv("SERVICE_PORT")

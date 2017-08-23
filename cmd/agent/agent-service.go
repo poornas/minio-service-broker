@@ -12,6 +12,7 @@ import (
 
 	"code.cloudfoundry.org/lager"
 	"github.com/gorilla/mux"
+	"github.com/minio/minio-service-broker/auth"
 	"github.com/minio/minio-service-broker/utils"
 )
 
@@ -112,16 +113,25 @@ func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *
 	if _, found := agent.services[instanceID]; !found {
 		agent.log.Error("instance not found", errors.New("instance does not exist"))
 	}
-	cmd := exec.Command("kill", "-9", strconv.Itoa(agent.services[instanceID].pid))
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	// Execute command
-
-	if err := cmd.Run(); err != nil {
-		agent.log.Fatal("Failed to deprovision instance", err)
+	// send stop request to minio server
+	creds, err := getCredentials(instanceID)
+	requestURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/" + "?service"
+	req, err := http.NewRequest("POST", requestURL, nil)
+	if err != nil {
+		agent.log.Fatal("Internal error", err)
 	}
-	fmt.Println("Service should be deprovisioned")
+	req.Header.Set("x-minio-operation", "stop")
+	creds.Sign(req)
+
+	_, err = http.DefaultClient.Do(req)
+	if err != nil {
+		agent.log.Fatal("Could not delete instance", err)
+	}
+
+	// if err := cmd.Run(); err != nil {
+	// 	agent.log.Fatal("Failed to deprovision instance", err)
+	// }
+	fmt.Println("Service should be deprovisioned", err)
 	delete(agent.services, instanceID)
 	w.WriteHeader(http.StatusOK)
 
@@ -138,13 +148,12 @@ func (agent *MinioServiceAgent) GetInstanceHandler(w http.ResponseWriter, r *htt
 	if _, found := agent.services[instanceID]; !found {
 		agent.log.Error("instance not found", errors.New("instance does not exist"))
 	}
-	// load credentials from config
-	configFilePath := getConfigFilePath(instanceID)
-	creds, err := utils.GetCredentialsFromConfig(configFilePath)
+
+	creds, err := getCredentials(instanceID)
 	if err != nil {
 		agent.log.Fatal("Instance config missing", err)
 	}
-	instanceURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/minio"
+	instanceURL := agent.getDashboardURL(instanceID)
 	credentials := &utils.Credentials{
 		EndpointURL: instanceURL,
 		AccessKey:   creds.AccessKey,
@@ -171,6 +180,12 @@ func getConfigDir(instanceID string) string {
 }
 func getConfigFilePath(instanceID string) string {
 	return getConfigDir(instanceID) + "/config.json"
+}
+func getCredentials(instanceID string) (auth.CredentialsV4, error) {
+	// load credentials from config
+	configFilePath := getConfigFilePath(instanceID)
+	creds, err := utils.GetCredentialsFromConfig(configFilePath)
+	return creds, err
 }
 func (agent *MinioServiceAgent) getDashboardURL(instanceID string) string {
 	instanceURL := agent.rootURL + ":" + strconv.Itoa(agent.services[instanceID].port) + "/minio"

@@ -12,20 +12,20 @@ import (
 
 const (
 	// DefaultServiceName is the name of Minio service on the marketplace
-	DefaultServiceName = "Minio-k2"
+	DefaultServiceName = "minio-poorna-service-name"
 
 	// DefaultServiceDescription is the description of the default service
 	DefaultServiceDescription = "Minio Service Broker"
 
 	// DefaultPlanName is the name of our supported plan
-	DefaultPlanName = "default"
+	DefaultPlanName = "minio-poorna-plan-name"
 	// DefaultPlanID is the ID of our supported plan
-	DefaultPlanID = "1234"
+	DefaultPlanID = "minio-poorna-plan-id"
 	//DefaultPlanDescription describes the default plan offered.
 	DefaultPlanDescription = "Secure access to a single instance Minio server"
 
 	// DefaultServiceID is placeholder id for the service broker
-	DefaultServiceID = "minio-broker-k2-id"
+	DefaultServiceID = "minio-poorna-service-id"
 )
 
 // this is just a stub - #TODO load any config from file
@@ -34,7 +34,7 @@ func getConfig() (conf utils.Config) {
 	if hostname == "" {
 		hostname = "127.0.0.1:9001"
 	} else {
-		hostname = hostname + ":9001"
+		hostname = hostname + ":8999"
 	}
 	// config of service agent : #TODO Replace placeholder AccessKey and SecretKey
 	conf = utils.Config{

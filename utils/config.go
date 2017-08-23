@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/minio/minio-service-broker/auth"
 )
 
 type Credentials struct {
@@ -37,7 +39,7 @@ type serverConfig struct {
 }
 
 // GetCredentialsFromConfig fetches access key and secret key from config file
-func GetCredentialsFromConfig(configFilePath string) (*AccessCredentials, error) {
+func GetCredentialsFromConfig(configFilePath string) (auth.CredentialsV4, error) {
 
 	srvCfg := &serverConfig{}
 	configFile, err := os.Open(configFilePath)
@@ -48,5 +50,5 @@ func GetCredentialsFromConfig(configFilePath string) (*AccessCredentials, error)
 	jsonParser := json.NewDecoder(configFile)
 
 	jsonParser.Decode(&srvCfg)
-	return &srvCfg.Credential, nil
+	return auth.CredentialsV4{srvCfg.Credential.AccessKey, srvCfg.Credential.SecretKey, srvCfg.Region}, nil
 }

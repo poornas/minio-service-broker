@@ -70,7 +70,6 @@ func (c *ApiClient) CreateInstance(parameters map[string]string) (string, error)
 	reqMetadata := requestMetadata{
 		instanceID: parameters["instanceID"],
 	}
-	fmt.Println("inside createinstance<== client call to agent ")
 	// Execute PUT to create a new bucket.
 	resp, err := c.executeMethod("PUT", reqMetadata)
 	defer closeResponse(resp)
@@ -243,7 +242,6 @@ func (c ApiClient) newRequest(method string, reqData requestMetadata) (req *http
 
 	// Construct a new target URL.
 	targetURL, err := c.makeTargetURL(reqData.instanceID, reqData.bindingID, reqData.queryValues)
-	fmt.Println("targetURL===", targetURL)
 	if err != nil {
 		return nil, err
 	}
