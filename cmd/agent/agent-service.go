@@ -304,6 +304,9 @@ func (agent *MinioServiceAgent) createInstance(instanceID string, port int) erro
 }
 
 func (agent *MinioServiceAgent) Init() error {
+	if _, err := os.Stat(globalInstancesDir); os.IsNotExist(err) {
+		return nil
+	}
 	entries, err := ioutil.ReadDir(globalInstancesDir)
 	if err != nil {
 		return err
