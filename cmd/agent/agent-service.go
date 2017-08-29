@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"code.cloudfoundry.org/lager"
 	"github.com/gorilla/mux"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	globalMinioPath = "/var/vcap/packages/minio-server/minio"
+	globalMinioPath = "/var/vcap/packages/minio/minio"
 
 	globalRootDir = "/var/vcap/store/minio-agent"
 
@@ -26,8 +27,9 @@ const (
 	globalMinioDir     = globalRootDir + "/minio"
 
 	globalInstanceBasePort = 9001
-	globalAgentPort        = ":9000"
 )
+
+var globalAgentPort = "9000"
 
 var globalMaxInstances = 100
 
@@ -154,6 +156,8 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	}
+	// Wait for minio process to write the config files
+	time.Sleep(time.Second * 4)
 }
 
 func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *http.Request) {
@@ -239,15 +243,15 @@ func (agent *MinioServiceAgent) GetInstanceHandler(w http.ResponseWriter, r *htt
 	}
 
 	info := struct {
-		AccessKey string
-		SecretKey string
-		Region    string
-		Port      int
+		AccessKey    string
+		SecretKey    string
+		Region       string
+		DashboardURL string
 	}{
 		minioConf.Credential.AccessKey,
 		minioConf.Credential.SecretKey,
 		minioConf.Region,
-		instanceConf.Port,
+		fmt.Sprintf("https://%d.minio.%s", instanceConf.Port, os.Getenv("CF_DOMAIN")),
 	}
 	contents, err := json.Marshal(info)
 	if err != nil {
@@ -286,7 +290,11 @@ func (agent *MinioServiceAgent) createInstance(instanceID string, port int) erro
 	cmd := exec.Command(globalMinioPath, "server", "--address", ":"+strconv.Itoa(port), "--config-dir", minioConfigDir, minioDataDir)
 	cmd.Stderr = logFile
 	cmd.Stdout = logFile
-
+	cmd.Env = append(
+		os.Environ(),
+		"MINIO_ACCESS_KEY=minio",
+		"MINIO_SECRET_KEY=minio123",
+	)
 	err = cmd.Start() // will wait for command to return
 	if err != nil {
 		return err
@@ -294,7 +302,6 @@ func (agent *MinioServiceAgent) createInstance(instanceID string, port int) erro
 	go func() {
 		cmd.Wait()
 	}()
-
 	configContents, err := json.Marshal(instanceConfig{port})
 	if err != nil {
 		return err
