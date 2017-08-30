@@ -1,51 +1,33 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 
 	"code.cloudfoundry.org/lager"
 
-	"github.com/minio/minio-service-broker/utils"
 	"github.com/pivotal-cf/brokerapi"
 )
 
 const (
 	// DefaultServiceName is the name of Minio service on the marketplace
-	DefaultServiceName = "minio-poorna-service-name"
+	DefaultServiceName = "minio-service"
 
 	// DefaultServiceDescription is the description of the default service
 	DefaultServiceDescription = "Minio Service Broker"
 
 	// DefaultPlanName is the name of our supported plan
-	DefaultPlanName = "minio-poorna-plan-name"
+	DefaultPlanName = "minio-plan"
 	// DefaultPlanID is the ID of our supported plan
-	DefaultPlanID = "minio-poorna-plan-id"
+	DefaultPlanID = "minio-plan-id"
 	//DefaultPlanDescription describes the default plan offered.
 	DefaultPlanDescription = "Secure access to a single instance Minio server"
 
 	// DefaultServiceID is placeholder id for the service broker
-	DefaultServiceID = "minio-broker-id"
+	DefaultServiceID = "minio-service-id"
 )
-
-// this is just a stub - #TODO load any config from file
-func getConfig() (conf utils.Config) {
-	hostname := os.Getenv("MINIO_AGENT1_MINIO_AGENT_HOST")
-	if hostname == "" {
-		hostname = "127.0.0.1:9001"
-	} else {
-		hostname = hostname + ":8999"
-	}
-	hostname = "192.168.16.142:9001"
-	// config of service agent : #TODO Replace placeholder AccessKey and SecretKey
-	conf = utils.Config{
-		Endpoint:  hostname,
-		AccessKey: "minioservice",
-		SecretKey: "minioservice123",
-		Secure:    false,
-	}
-	return
-}
 
 func main() {
 	// Create logger
@@ -66,8 +48,11 @@ func main() {
 		Username: username,
 		Password: password,
 	}
-	// Load endpoint config
-	conf := getConfig()
+
+	u, err := url.Parse(fmt.Sprintf("http://%s:9000", os.Getenv("MINIO_AGENT_HOST")))
+	if err != nil {
+		return
+	}
 
 	// Setup the broker
 	broker := &MinioServiceBroker{
@@ -80,9 +65,9 @@ func main() {
 		planID:          DefaultPlanID,
 		planDescription: DefaultPlanDescription,
 		bindablePlan:    true,
-		instanceMgr:     NewInstanceMgr(conf, log),
-		bindingMgr:      NewBindingMgr(conf, log),
+		agent:           agentClient{u: *u},
 	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -91,7 +76,8 @@ func main() {
 	brokerAPI := brokerapi.New(broker, log, credentials)
 	http.Handle("/", brokerAPI)
 	log.Info("Listening for requests")
-	err := http.ListenAndServe(":"+port, nil)
+
+	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Error("Failed to start the server", err)
 	}

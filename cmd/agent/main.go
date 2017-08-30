@@ -34,13 +34,16 @@ func main() {
 		log.Fatal("Unable to create "+globalInstancesDir, err)
 		return
 	}
+	if os.Getenv("MINIO_AGENT_PORT") != "" {
+		globalAgentPort = os.Getenv("MINIO_AGENT_PORT")
+	}
 
 	router := mux.NewRouter()
 	router.Methods("PUT").Path("/instances/{instance-id}").HandlerFunc(agent.CreateInstanceHandler)
 	router.Methods("DELETE").Path("/instances/{instance-id}").HandlerFunc(agent.DeleteInstanceHandler)
 	router.Methods("GET").Path("/instances/{instance-id}").HandlerFunc(agent.GetInstanceHandler)
 
-	if err := http.ListenAndServe(globalAgentPort, router); err != nil {
+	if err := http.ListenAndServe(":"+globalAgentPort, router); err != nil {
 		log.Fatal("Unable to listen on port "+globalAgentPort, err)
 	}
 }

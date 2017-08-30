@@ -2,34 +2,15 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"code.cloudfoundry.org/lager"
-	"github.com/minio/minio-service-broker/utils"
 	"github.com/pivotal-cf/brokerapi"
 )
-
-type BrokerConfig struct {
-	Password string
-	Username string
-}
-
-// InstanceCreator upholds this contract
-type InstanceCreator interface {
-	Create(instanceID string) error
-	Destroy(instanceID string) error
-	Exists(instanceID string) (bool, error)
-}
-type InstanceBinder interface {
-	Bind(instanceID string, bindingID string) (utils.Credentials, error)
-	Unbind(instanceID string, bindingID string) error
-	Exists(instanceID string, bindingID string) (bool, error)
-}
 
 // Broker
 type MinioServiceBroker struct {
 	log lager.Logger
+
 	// Serviceplan Info
 	serviceName        string
 	serviceID          string
@@ -41,19 +22,17 @@ type MinioServiceBroker struct {
 	planDescription string
 	planID          string
 	bindablePlan    bool
-	instanceMgr     *InstanceMgr
-	bindingMgr      *BindingMgr
-	// Broker Config
-	Config BrokerConfig
+
+	agent agentClient
 }
 
 // Services Api
 func (b *MinioServiceBroker) Services(ctx context.Context) []brokerapi.Service {
 	b.log.Info("Building services catalog...")
-	brokerID := "minio-broker-id" //uuid.NewV4().String()
+
 	return []brokerapi.Service{
 		brokerapi.Service{
-			ID:            brokerID,
+			ID:            b.serviceID,
 			Name:          b.serviceName,
 			Description:   b.serviceDescription,
 			Tags:          []string{},
@@ -74,34 +53,19 @@ func (b *MinioServiceBroker) Services(ctx context.Context) []brokerapi.Service {
 func (b *MinioServiceBroker) Provision(ctx context.Context, instanceID string, serviceDetails brokerapi.ProvisionDetails, asyncAllowed bool) (spec brokerapi.ProvisionedServiceSpec, err error) {
 	b.log.Info("Provisioning new instance ...")
 
-	spec = brokerapi.ProvisionedServiceSpec{IsAsync: false}
-	exists, err := b.instanceMgr.Exists(instanceID)
-	if exists {
-		return spec, errors.New("Instance already exists")
-	}
-	if serviceDetails.ServiceID != b.serviceID {
-		return spec, fmt.Errorf("Service %s does not exist.Should be %s", serviceDetails.ServiceID, b.serviceID)
+	if err := b.agent.CreateInstance(instanceID); err != nil {
+		return spec, err
 	}
 
-	if serviceDetails.PlanID == "" {
-		return spec, errors.New("planId required")
-	}
-	// Only default plan for now
-	if serviceDetails.PlanID != b.planID {
-		return spec, errors.New("plan id not recognized")
-	}
-
-	instance := b.instanceMgr.getInstanceByID(instanceID)
-	if instance != nil {
-		return spec, errors.New("instance already provisioned") // should return 409 here.
-	}
-	fmt.Println("is instance manager init", b.instanceMgr)
-	err = b.instanceMgr.Create(instanceID)
+	info, err := b.agent.InstanceInfo(instanceID)
 	if err != nil {
-		return brokerapi.ProvisionedServiceSpec{}, err
+		return spec, err
 	}
-	spec.DashboardURL = b.instanceMgr.instances[instanceID].dashboardURL
-	return spec, nil
+
+	return brokerapi.ProvisionedServiceSpec{
+		IsAsync:      false,
+		DashboardURL: info.DashboardURL,
+	}, nil
 }
 
 // Deprovision Api
@@ -109,36 +73,25 @@ func (b *MinioServiceBroker) Deprovision(ctx context.Context, instanceID string,
 	b.log.Info("Deprovisioning new instance...")
 	spec := brokerapi.DeprovisionServiceSpec{}
 
-	// TODO: Need to ensure no binding exists - bindingInfo needs to change to have instanceID as state
-	exists, _ := b.instanceMgr.Exists(instanceID)
-	if exists {
-		return spec, b.instanceMgr.Destroy(instanceID)
-	}
-	return spec, brokerapi.ErrInstanceDoesNotExist
-
+	err := b.agent.DeleteInstance(instanceID)
+	return spec, err
 }
 
 // Bind Api
-func (b *MinioServiceBroker) Bind(ctx context.Context, instanceID, bindingID string, details brokerapi.BindDetails) (brokerapi.Binding, error) {
+func (b *MinioServiceBroker) Bind(ctx context.Context, instanceID, bindingID string, details brokerapi.BindDetails) (binding brokerapi.Binding, err error) {
 	b.log.Debug("Binding service...", lager.Data{
 		"binding-id":  bindingID,
 		"instance-id": instanceID,
 	})
-	binding := brokerapi.Binding{}
-	exists, _ := b.instanceMgr.Exists(instanceID)
-	if exists {
-		bindingExists, _ := b.bindingMgr.Exists(instanceID, bindingID)
-		if bindingExists {
-			return brokerapi.Binding{}, brokerapi.ErrBindingAlreadyExists
-		}
-		instanceCredentials, err := b.bindingMgr.Bind(instanceID, bindingID)
-		if err != nil {
-			return brokerapi.Binding{}, errors.New("binding could not be created")
-		}
-		binding.Credentials = instanceCredentials
+	info, err := b.agent.InstanceInfo(instanceID)
+	if err != nil {
 		return binding, err
 	}
-	return brokerapi.Binding{}, brokerapi.ErrInstanceDoesNotExist
+	credential := make(map[string]string)
+	credential["AccessKey"] = info.AccessKey
+	credential["SecretKey"] = info.SecretKey
+	credential["Region"] = info.Region
+	return brokerapi.Binding{Credentials: credential}, brokerapi.ErrInstanceDoesNotExist
 }
 
 // Unbind Api
@@ -147,16 +100,8 @@ func (b *MinioServiceBroker) Unbind(ctx context.Context, instanceID, bindingID s
 		"binding-id":  bindingID,
 		"instance-id": instanceID,
 	})
-	exists, _ := b.bindingMgr.Exists(instanceID, bindingID)
-	if exists {
-		err := b.bindingMgr.Unbind(instanceID, bindingID)
-		if err != nil {
-			return brokerapi.ErrBindingDoesNotExist
-		}
-		return nil
-	}
 
-	return brokerapi.ErrBindingDoesNotExist
+	return nil
 }
 
 // LastOperation ...
