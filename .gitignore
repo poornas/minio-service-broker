@@ -16,7 +16,5 @@ release
 .DS_Store
 *.syso
 coverage.txt
-/cmd/agent
-/cmd/broker
 /tile/src/*
 !/tile/src/.gitkeep 
