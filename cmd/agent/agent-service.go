@@ -1,3 +1,18 @@
+/*
+* Minio Client (C) 2017 Minio, Inc.
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+ */
 package main
 
 import (
@@ -19,62 +34,77 @@ import (
 )
 
 const (
+	// Path to minio binary on CF
 	globalMinioPath = "/var/vcap/packages/minio/minio"
-
+	// Root dir of minio-agent
 	globalRootDir = "/var/vcap/store/minio-agent"
-
+	// Path to dir where instance state is maintained.
 	globalInstancesDir = globalRootDir + "/instances"
-	globalMinioDir     = globalRootDir + "/minio"
-
+	// Path to dir where minio server instances are maintained.
+	globalMinioDir = globalRootDir + "/minio"
+	// Base port number for instances.
 	globalInstanceBasePort = 9001
 )
 
+// Port number at which agent listens in.
 var globalAgentPort = "9000"
 
+// Max number of instances allowed - artificial restriction for now.
 var globalMaxInstances = 100
 
+// instance config
 type instanceConfig struct {
 	Port int
 }
 
+// minio access credentials
 type minioCredential struct {
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`
 }
 
+// minio server config
 type minioConfig struct {
 	Credential minioCredential `json:"credential"`
 	Region     string          `json:"region"`
 }
 
+// return path to directory where minio instance is stored.
 func getMinioDir(instanceID string) string {
 	return fmt.Sprintf("%s/%s", globalMinioDir, instanceID)
 }
 
+// return path to minio config folder for this instance
 func getMinioConfigDir(instanceID string) string {
 	return fmt.Sprintf("%s/config", getMinioDir(instanceID))
 }
 
+// Get full path to the minio config file for this instance.
 func getMinioConfigFile(instanceID string) string {
 	return fmt.Sprintf("%s/config.json", getMinioConfigDir(instanceID))
 }
 
+// Get full path of directory where the minio instance's data is stored.
 func getMinioDataDir(instanceID string) string {
 	return fmt.Sprintf("%s/data", getMinioDir(instanceID))
 }
 
+// Get full path to server logs directory for a minio instance
 func getMinioLogsDir(instanceID string) string {
 	return fmt.Sprintf("%s/logs", getMinioDir(instanceID))
 }
 
+// Get full path to server log file for a minio instance
 func getMinioLogFile(instanceID string) string {
 	return fmt.Sprintf("%s/minio.log", getMinioLogsDir(instanceID))
 }
 
+// Get config file for this instance. This is used by the agent to manage instances.
 func getInstanceConfigFile(instanceID string) string {
 	return fmt.Sprintf("%s/%s.json", globalInstancesDir, instanceID)
 }
 
+// Get the instance config for this instanceID.
 func getInstanceConfig(instanceID string) (config instanceConfig, err error) {
 	configPath := getInstanceConfigFile(instanceID)
 	contents, err := ioutil.ReadFile(configPath)
@@ -85,6 +115,7 @@ func getInstanceConfig(instanceID string) (config instanceConfig, err error) {
 	return config, err
 }
 
+// Assign an unused port for an instance starting at the globalInstanceBasePort
 func getFreePort() (port int, err error) {
 	entries, err := ioutil.ReadDir(globalInstancesDir)
 	if err != nil {
@@ -108,6 +139,7 @@ func getFreePort() (port int, err error) {
 	return -1, errors.New("maximum instances already allocated")
 }
 
+// get the minio server config file for this instance of minio.
 func getMinioConfig(instanceID string) (minioConfig, error) {
 	var config minioConfig
 	minioConfigFile := getMinioConfigFile(instanceID)
@@ -119,13 +151,13 @@ func getMinioConfig(instanceID string) (minioConfig, error) {
 	return config, err
 }
 
-// MinioServiceAgent holds the map of service name to status TODO => Persist agent config to some config.json
+// MinioServiceAgent holds the map of service name to status
 type MinioServiceAgent struct {
 	log lager.Logger
 	sync.Mutex
 }
 
-//CreateInstanceHandler creates an instance of minio server
+// CreateInstanceHandler creates an instance of minio server
 func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *http.Request) {
 	agent.Lock()
 	defer agent.Unlock()
@@ -160,6 +192,7 @@ func (agent *MinioServiceAgent) CreateInstanceHandler(w http.ResponseWriter, r *
 	time.Sleep(time.Second * 4)
 }
 
+// DeleteInstanceHandler kills this instance of minio server and deletes its data from disk.
 func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *http.Request) {
 	agent.Lock()
 	defer agent.Unlock()
@@ -221,6 +254,7 @@ func (agent *MinioServiceAgent) DeleteInstanceHandler(w http.ResponseWriter, r *
 	}
 }
 
+// GetInstanceHandler returns access credentials and instance URL
 func (agent *MinioServiceAgent) GetInstanceHandler(w http.ResponseWriter, r *http.Request) {
 	agent.Lock()
 	defer agent.Unlock()
@@ -262,6 +296,7 @@ func (agent *MinioServiceAgent) GetInstanceHandler(w http.ResponseWriter, r *htt
 	w.Write(contents)
 }
 
+// actual doer to start a minio instance.
 func (agent *MinioServiceAgent) createInstance(instanceID string, port int) error {
 	minioConfigDir := getMinioConfigDir(instanceID)
 	minioDataDir := getMinioDataDir(instanceID)
@@ -310,6 +345,8 @@ func (agent *MinioServiceAgent) createInstance(instanceID string, port int) erro
 	return err
 }
 
+//Init all the instances of minio on their respective ports(as per the
+// config saved in the globalInstancesDir)
 func (agent *MinioServiceAgent) Init() error {
 	if _, err := os.Stat(globalInstancesDir); os.IsNotExist(err) {
 		return nil
